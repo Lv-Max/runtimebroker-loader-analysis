@@ -26,7 +26,7 @@ ATT&CK Enterprise v15.
 
 | ID | Technique | Evidence |
 |---|---|---|
-| T1548.002 | Bypass User Account Control | Stage 1: `CoGetObject("Elevation:Administrator!new:{3E5FC7F9-…}")` → `ICMLuaUtil::ShellExec`, no prompt |
+| T1548.002 | Bypass User Account Control | `CheckTokenMembership` → not admin → `CoGetObject("Elevation:Administrator!new:{3E5FC7F9-…}")` → `ICMLuaUtil::ShellExec(own path)`, no prompt. This is the loader's own code, not the dropper's |
 | T1134.001 | Access Token Manipulation: Token Impersonation/Theft | Targets `winlogon`, `smartscreen`, `explorer.exe`; `OpenProcessToken` → `AdjustTokenPrivileges` at `0x14000D330` |
 | T1134.002 | Create Process with Token | `SeAssignPrimaryTokenPrivilege`, `SeIncreaseQuotaPrivilege` requested alongside `SeDebugPrivilege` |
 

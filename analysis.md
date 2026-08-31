@@ -127,17 +127,38 @@ specifically evading public online sandboxes rather than local VMs alone.
 
 ## 3. Execution chain
 
+Note that elevation, AV blinding, installation and persistence are all
+**this sample's own code**, not the dropper's. The dropper only delivers it.
+
 ```
-HowToFishTrainer.exe  (stage 1, trojanised game trainer)
-  └─ UAC bypass: CoGetObject("Elevation:Administrator!new:{3E5FC7F9-...}")
-     → ICMLuaUtil::ShellExec                                   (no prompt)
-  └─ powershell -Command "Add-MpPreference -ExclusionPath
-       'C:\ProgramData\Windows\Microsoft','C:\ProgramData\Microsoft\Windows'"
-       && gpupdate /force
-  └─ drops + runs  C:\ProgramData\Windows\Microsoft\RuntimeBroker.exe
-       └─ AMSI bypass: patch amsi.dll!AmsiOpenSession in memory
-       └─ 4 scheduled tasks (see §8)
-       └─ connect C2 → wait for commands
+HowToFishTrainer.exe   stage 1, trojanised game trainer (.NET Native AOT)
+  └─ delivers and runs RuntimeBroker.exe
+
+RuntimeBroker.exe      stage 2 -- this sample; everything below is its own code
+  |
+  ├─ recon     geofence via Control Panel\International\Geo\Nation,
+  │            CPU vendor, BIOS manufacturer, volume serial, display
+  │            parameters, plus the VM checks in §2
+  │
+  ├─ elevate   CheckTokenMembership -> not an administrator
+  │            CoGetObject("Elevation:Administrator!new:{3E5FC7F9-...}")
+  │            -> ICMLuaUtil::ShellExec(own path)            no UAC prompt
+  │
+  ├─ blind     powershell -Command "Add-MpPreference -ExclusionPath
+  │              'C:\ProgramData\Windows\Microsoft',
+  │              'C:\ProgramData\Microsoft\Windows'" && gpupdate /force
+  │            amsi.dll!AmsiOpenSession patched in memory     (0x140011B70)
+  │
+  ├─ install   GetModuleFileNameW + CompareStringOrdinal to test whether it is
+  │            already in place; DeleteFileW / SetFileAttributesW to clear an
+  │            older build; CopyFileW to
+  │            C:\ProgramData\Windows\Microsoft\RuntimeBroker.exe;
+  │            CreateProcessW the copy, original ExitProcess
+  │
+  ├─ persist   CoCreateInstance(ITaskService) x4, four scheduled tasks    §8
+  │
+  └─ beacon    WSAStartup -> getaddrinfo -> socket -> connect
+               WebSocket handshake -> "ready;..." -> wait for commands    §4
 ```
 
 The second exclusion path, `C:\ProgramData\Microsoft\Windows`, is a **real
