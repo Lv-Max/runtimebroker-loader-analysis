@@ -146,12 +146,33 @@ alert tcp $HOME_NET any -> $EXTERNAL_NET any ( \
 # Rule [1] already matches the hardcoded key on its own and is cheaper. Use
 # this one when you want the stricter, near-zero-FP form -- e.g. to confirm a
 # hit from [1] rather than to run broadly.
+#
+# WINDOW BUDGET -- do not tighten without redoing this arithmetic.
+# `within:N` bounds the END of the current match relative to the end of the
+# previous one, so the content's own length counts against N:
+#
+#     host budget = within - len(content[1]) = 255 - 117 = 138 bytes
+#
+# What has to fit in that budget:
+#     45.91.202.146                 13   the hardcoded C2
+#     255.255.255.255               15   longest IPv4
+#     myhost.duckdns.org            18   typical fallback hostname
+#     <63-char label>.duckdns.org   75   longest possible fallback (DNS label
+#                                        max is 63; the cached prefix is
+#                                        whatever last probed successfully, so
+#                                        its length is not under our control)
+#
+# An earlier revision used within:180, leaving only 63 bytes -- enough for every
+# observed host but too tight for a maximal .duckdns.org fallback. Widening is
+# nearly free here: content[1] is 117 bytes of highly specific text and
+# content[0] is pinned to offset 0 by depth:22, so at most one anchor exists per
+# flow and the larger window does not add real scanning work.
 # ---------------------------------------------------------------------
 alert tcp $HOME_NET any -> $EXTERNAL_NET any ( \
     msg:"MALWARE RuntimeBroker loader - exact WebSocket handshake"; \
     flow:established,to_server; \
     content:"GET / HTTP/1.1|0d 0a|Host|3a 20|"; depth:22; \
-    content:"|0d 0a|Upgrade|3a 20|websocket|0d 0a|Connection|3a 20|Upgrade|0d 0a|Sec-WebSocket-Key|3a 20|dGhlIHNhbXBsZSBub25jZQ==|0d 0a|Sec-WebSocket-Version|3a 20|13|0d 0a 0d 0a|"; distance:0; within:180; \
+    content:"|0d 0a|Upgrade|3a 20|websocket|0d 0a|Connection|3a 20|Upgrade|0d 0a|Sec-WebSocket-Key|3a 20|dGhlIHNhbXBsZSBub25jZQ==|0d 0a|Sec-WebSocket-Version|3a 20|13|0d 0a 0d 0a|"; distance:0; within:255; \
     classtype:trojan-activity; \
     sid:1000007; rev:1;)
 
