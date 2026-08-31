@@ -222,8 +222,20 @@ validates framing.)
 Registration message, sent once:
 
 ```
-ready;00000000;version;1.0.0
+ready;<volume-serial>;version;1.0.0
 ```
+
+The second field is the **volume serial number of the system drive**, formatted
+as eight lowercase hex digits — an implicit bot ID. Confirmed experimentally:
+the emulation harness stubbed `GetVolumeInformationW` without writing the
+`lpVolumeSerialNumber` out-parameter, so the buffer stayed zero and every
+captured beacon read `ready;00000000;…`. Writing `0xDEADBEEF` into that
+parameter and re-running produced `ready;deadbeef;version;1.0.0`.
+
+> **`00000000` is an artifact of emulation, not a real value.** Earlier drafts
+> of this report recorded it as the literal registration message. A live
+> infection sends its own drive serial, so the all-zero form should not be used
+> as a signature and would not be produced by any real host.
 
 Campaign ID `63203572`. Commands observed from the server:
 

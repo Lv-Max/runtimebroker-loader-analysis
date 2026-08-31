@@ -15,7 +15,7 @@
     "domains": [ { "value": "*.duckdns.org", "confidence": "low", "note": "fallback suffix; subdomain resolved at runtime and cached in the registry, not present in the binary. High false-positive rate -- hunting only." } ],
     "protocol_strings": [
       "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
-      "ready;00000000;version;1.0.0",
+      "ready;<volume-serial-as-8-lowercase-hex>;version;1.0.0",
       "checkserver;",
       "task_done;"
     ],

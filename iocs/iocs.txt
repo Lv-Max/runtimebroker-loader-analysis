@@ -17,7 +17,10 @@ b971a5c1915861d611bf56d718f084406325890e5f47d9a1f64e982481e3b2b8  HowToFishTrain
 
 ## network -- protocol fingerprints
 Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==     RFC 6455 example key, hardcoded, sent every connection
-ready;00000000;version;1.0.0                    registration message
+ready;<volume-serial>;version;1.0.0             registration message; field 2 is the
+                                                system drive volume serial as %08x (bot ID).
+                                                NOT literally 00000000 -- that value only
+                                                appeared under emulation. Do not signature it.
 checkserver;<value>;<nonce>                     liveness probe
 task_done;<task_id>                             task completion report
 63203572                                        campaign id
