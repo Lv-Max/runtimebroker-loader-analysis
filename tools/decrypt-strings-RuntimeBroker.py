@@ -60,8 +60,13 @@ def readstr(uc, a, n=200):
     ansi = b.split(b'\0')[0]
     try: wide = b.decode('utf-16-le','ignore').split('\0')[0]
     except Exception: wide = ''
-    a1 = ansi.decode('latin1') if ansi and all(32<=x<127 for x in ansi) else None
-    w1 = wide if wide and len(wide)>=3 and all(32<=ord(c)<127 for c in wide) else None
+    # CR/LF/TAB 必须放行。原先是 all(32<=x<127 ...)，只要串里出现一个 CR
+    # 就把整条丢掉 —— 于是这个二进制里所有 HTTP 形状的字符串（WebSocket 握手
+    # 模板、载荷下载请求模板）全部不可见。同类缺陷在 pass2 的正则里也有一份，
+    # 一并修了。2026-08-31。
+    OK = lambda x: 32 <= x < 127 or x in (9, 10, 13)
+    a1 = ansi.decode('latin1') if ansi and all(OK(x) for x in ansi) else None
+    w1 = wide if wide and len(wide) >= 3 and all(OK(ord(c)) for c in wide) else None
     return a1, w1
 
 seen = collections.OrderedDict(); fails = 0

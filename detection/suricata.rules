@@ -111,12 +111,61 @@ alert tcp $EXTERNAL_NET any -> $HOME_NET any ( \
 #    sid:1000005; rev:1;)
 
 
+# ---------------------------------------------------------------------
+# [6] Payload download request                           FP risk: very low
+#
+# Recovered byte-for-byte from the encrypted string table (analysis section 6):
+#
+#   GET /task/%s HTTP/1.1\r\nHost: %s\r\nUser-Agent: %s\r\nConnection: close\r\n\r\n
+#
+# The %s in the path is the task identifier. Pairing "GET /task/" with
+# "Connection: close" in the same request is specific enough on its own; the
+# response to it is an unencrypted PE, which rule [2] catches from the other
+# direction. Together they bracket the whole payload transfer.
+#
+# Not port-locked deliberately -- the download channel is separate from the
+# WebSocket control channel and its port is supplied at runtime, so it will not
+# always be 406/408.
+# ---------------------------------------------------------------------
+alert tcp $HOME_NET any -> $EXTERNAL_NET any ( \
+    msg:"MALWARE RuntimeBroker loader - payload download request (GET /task/)"; \
+    flow:established,to_server; \
+    content:"GET /task/"; depth:10; \
+    content:"Connection|3a 20|close|0d 0a 0d 0a|"; distance:0; within:512; \
+    classtype:trojan-activity; \
+    sid:1000006; rev:1;)
+
+
+# ---------------------------------------------------------------------
+# [7] Exact WebSocket handshake request                  FP risk: none
+#
+# The full 152-byte request is fixed apart from the host (analysis section 4).
+# Path is "/", header order is invariant, there are no extra headers, and
+# Host: carries no port even though the C2 listens on 406/408.
+#
+# Rule [1] already matches the hardcoded key on its own and is cheaper. Use
+# this one when you want the stricter, near-zero-FP form -- e.g. to confirm a
+# hit from [1] rather than to run broadly.
+# ---------------------------------------------------------------------
+alert tcp $HOME_NET any -> $EXTERNAL_NET any ( \
+    msg:"MALWARE RuntimeBroker loader - exact WebSocket handshake"; \
+    flow:established,to_server; \
+    content:"GET / HTTP/1.1|0d 0a|Host|3a 20|"; depth:22; \
+    content:"|0d 0a|Upgrade|3a 20|websocket|0d 0a|Connection|3a 20|Upgrade|0d 0a|Sec-WebSocket-Key|3a 20|dGhlIHNhbXBsZSBub25jZQ==|0d 0a|Sec-WebSocket-Version|3a 20|13|0d 0a 0d 0a|"; distance:0; within:180; \
+    classtype:trojan-activity; \
+    sid:1000007; rev:1;)
+
+
 # =====================================================================
 # Deployment guidance
 #
-#   always on          [1] [3]      very low FP
-#   on, port-scoped    [2]          already limited to 406/408
-#   hunting only       [4] [5]      [5] ships commented out
+#   always on          [1] [3] [6] [7]   very low FP
+#   on, port-scoped    [2]               already limited to 406/408
+#   hunting only       [4] [5]           [5] ships commented out
+#
+#   [6] + [2] bracket the payload transfer: the request going out, the
+#   unencrypted PE coming back. [7] is the strict form of [1] -- run [1]
+#   broadly, use [7] to confirm.
 #
 # Host-side indicators are stronger than any of these. Two registry values,
 # both under keys that legitimately exist on clean systems -- so test for the

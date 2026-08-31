@@ -48,8 +48,20 @@ def harvest(uc,tag):
     for base,size in ((TLSBLK,0x20000),(OUT,0x2000)):
         try: b=bytes(uc.mem_read(base,size))
         except Exception: continue
-        for m in re.finditer(rb"[\x20-\x7e]{4,120}\x00", b):
-            v=m.group()[:-1].decode()
+        # 允许 CR/LF/TAB，并且不要求紧接 NUL。
+        #
+        # 原先是 rb"[\x20-\x7e]{4,120}\x00" —— 两个缺陷叠加：
+        #   1) 字符类不含 CR(0x0D)/LF(0x0A)，含 CRLF 的串会被切成碎片
+        #   2) 尾部 \x00 锚点又要求可打印段紧挨着 NUL
+        # 结果是这个二进制里所有 HTTP 形状的字符串对收集器完全不可见。
+        # WebSocket 握手模板（152 字节，含 6 处 CRLF）就是这样被静默丢弃的：
+        # 常量 A 只漏出 "Host: "，常量 B 一条都不剩。串一直被正确解密着，
+        # 是收集器在丢数据。2026-08-31 修复。
+        for m in re.finditer(rb"[\x20-\x7e\r\n\t]{4,400}", b):
+            raw=m.group()
+            if len(raw.strip())<4: continue
+            try: v=raw.decode()
+            except UnicodeDecodeError: continue
             if v not in found: found[v]=tag
         try: u=b.decode('utf-16-le','ignore')
         except Exception: u=''

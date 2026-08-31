@@ -71,7 +71,7 @@ Both present = confirmed infection.
 analysis.md               full technical write-up
 detection/
     runtimebroker.yar     3 YARA rules — tested, see below
-    suricata.rules        5 network rules, each with a false-positive rating
+    suricata.rules        7 network rules, each with a false-positive rating
     attack-mapping.md     MITRE ATT&CK mapping
 iocs/
     iocs.txt              plain text, one per line
@@ -93,9 +93,11 @@ samples/                  hashes only — no binaries in this repo
 Tested against 400 clean `C:\Windows\System32` binaries: **0 false positives.**
 The stage-1 dropper does not match (different family), as expected.
 
-**Suricata/Snort** — 5 rules, each annotated with a false-positive rating and a
-deployment recommendation. Two are safe to run always; one is scoped to the C2
-ports; two are hunting-only and one of those ships commented out.
+**Suricata/Snort** — 7 rules, each annotated with a false-positive rating and a
+deployment recommendation. Four are safe to run always (the hardcoded RFC 6455
+handshake key, its strict 152-byte form, the C2 address, and the `GET /task/`
+payload request); one is scoped to the C2 ports; two are hunting-only and one of
+those ships commented out.
 
 > The network rules have **not** been validated with `suricata -T`. Test before
 > deploying.
