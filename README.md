@@ -36,6 +36,19 @@ A conforming client generates this randomly per connection, so it is a
 near-zero-false-positive fingerprint that survives recompilation and
 infrastructure changes.
 
+## Campaign status
+
+Not an isolated sample. VirusTotal associates 21 files with `45.91.202.146`,
+mostly named `RuntimeBroker.exe` at 519–536 KB — recompiles of the same loader,
+first submitted between **2026-08-21 and 2026-08-31**, with new builds appearing
+on most days up to the date of writing.
+
+**Treat this C2 as potentially live.** Its reachability was not tested, but a
+campaign shipping daily builds is not pointed at a dead server. Correspondingly,
+**file hashes are near-useless** for this family — every build differs. The
+durable indicators are the two registry values below and the hardcoded RFC 6455
+handshake key, neither of which changes between builds.
+
 ## Highest-value host indicators
 
 Two registry values. Both keys are legitimate paths that exist on clean systems,

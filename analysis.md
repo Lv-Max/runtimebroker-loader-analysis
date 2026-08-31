@@ -221,6 +221,29 @@ hostname most recently probed successfully, cached in the registry. The infected
 host was wiped, so that cached value is gone — this is data loss, not an
 analysis gap.
 
+### 4.2 Campaign status
+
+This is not an isolated sample. VirusTotal associates **21 files** with
+`45.91.202.146`, most of them named `RuntimeBroker.exe` and sized 519–536 KB —
+recompiles of the same loader. Their first-submission dates run from
+**2026-08-21 to 2026-08-31**, with new builds appearing on most days including
+the date this was written.
+
+Two things follow:
+
+- **The campaign is active.** Operators do not keep shipping fresh builds at a
+  dead C2. The reachability of the server itself was not tested, but treating
+  this IP as historical would be a mistake — the network rule in
+  [`detection/suricata.rules`](detection/suricata.rules) is worth running live,
+  not only against stored flow logs.
+- **File hashes are worthless here.** Every build is a different hash. The
+  durable indicators are the two registry values (§6, §8) and the hardcoded
+  RFC 6455 handshake key, none of which change between builds.
+
+The IP is announced by **AS211381 (Podaon SIA, NL)** and has previously hosted a
+cluster of algorithmically-named `.shop` domains, which suggests reuse across
+campaigns rather than dedicated infrastructure.
+
 A 62-character alphabet (`a-zA-Z0-9`) coexists with the domain suffix in the
 config, which initially suggested a DGA. It is not: the PRNG at `0x140014FB0`
 (`GetTickCount64`-seeded, `div rcx` mod 62) produces the nonce in
@@ -440,12 +463,13 @@ the heuristic cannot establish function extents.
   have captured it either — across the 20 samples VirusTotal associates with this
   C2, every dropped file is the loader's own self-copy.
 
-  **Whether the C2 is still reachable was not tested.** "Not obtained" here means
-  exactly that; it is not a claim that retrieval is impossible. Note also that
-  absence of network activity in public sandbox reports is *expected* regardless
-  of C2 state: the anti-analysis checks in §2 run long before the beacon in §3,
-  so a sample that detects the sandbox never reaches the network stage. Sandbox
-  telemetry therefore says nothing about whether the server is alive.
+  **Whether the C2 is still reachable was not tested**, and the campaign appears
+  to be live (see §4.2). "Not obtained" here means exactly that; it is not a
+  claim that retrieval is impossible. Note also that absence of network activity
+  in public sandbox reports is *expected* regardless of C2 state: the
+  anti-analysis checks in §2 run long before the beacon in §3, so a sample that
+  detects the sandbox never reaches the network stage. Sandbox telemetry
+  therefore says nothing about whether the server is alive.
 - **The `.duckdns.org` subdomain prefix.** Mechanism understood (§4.1); the
   cached value is gone with the host.
 - **The unnamed 320 KB section.** VMProtect's own runtime. Analysing it studies
