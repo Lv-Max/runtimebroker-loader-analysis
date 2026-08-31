@@ -1,0 +1,57 @@
+# RuntimeBroker.exe loader -- indicators of compromise
+# https://github.com/Lv-Max/runtimebroker-loader-analysis
+# Generated 2026-08-31
+#
+# NOTE ON REGISTRY KEYS: both keys below are legitimate paths present on clean
+# systems. Detect on the VALUE, never on the key.
+
+## hashes
+cf0d4b3837b9a23fb46cbb0a90f5ecae6b7dcd5b1f13b9d4a5fe0de7cec85041  RuntimeBroker.exe    stage 2 loader
+b971a5c1915861d611bf56d718f084406325890e5f47d9a1f64e982481e3b2b8  HowToFishTrainer.exe stage 1 dropper
+
+## network
+45.91.202.146          C2
+45.91.202.146:406      C2 primary port
+45.91.202.146:408      C2 secondary port
+*.duckdns.org          fallback channel suffix (subdomain generated at runtime, not in binary -- HIGH FP, hunting only)
+
+## network -- protocol fingerprints
+Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==     RFC 6455 example key, hardcoded, sent every connection
+ready;00000000;version;1.0.0                    registration message
+checkserver;<value>;<nonce>                     liveness probe
+task_done;<task_id>                             task completion report
+63203572                                        campaign id
+
+## filesystem
+C:\ProgramData\Windows\Microsoft\RuntimeBroker.exe   install path
+C:\ProgramData\Windows\                              install directory (NOT a standard Windows directory)
+
+## registry -- staged payload  (conclusive when WinRAR is not installed)
+HKCU\Software\WinRAR\Libs
+  value:  <task_id>_<module>_chunk_<n>
+  value:  <task_id>_<module>_tempchunk_<n>
+
+## registry -- cached C2 hostname
+HKCU\Software\Microsoft\EventSystem
+  value:  System        contents: hostname short string
+
+## mutex
+Global\RuntimeBrokerAds
+
+## scheduled tasks
+Updates compatibility database
+Handles restoring settings from the cloud
+SvcRestartTaskWindowsLogins
+ProgramDataUpdate
+ScheduledDef
+MicrosoftUpdaterMachineCore
+
+## defender exclusions added by the malware
+C:\ProgramData\Windows\Microsoft
+C:\ProgramData\Microsoft\Windows      <- a REAL Windows directory, chosen to look plausible
+
+## process behaviour
+RuntimeBroker.exe spawning C:\Windows\System32\cmd.exe with CREATE_SUSPENDED|CREATE_NO_WINDOW
+injection via NtAllocateVirtualMemory / NtWriteVirtualMemory / NtCreateThreadEx
+amsi.dll!AmsiOpenSession patched in memory
+RtlSetProcessIsCritical set on self

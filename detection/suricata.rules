@@ -1,0 +1,132 @@
+# =====================================================================
+# RuntimeBroker.exe loader -- network detection (Suricata / Snort syntax)
+#
+# Reference : https://github.com/Lv-Max/runtimebroker-loader-analysis
+# Sample    : cf0d4b3837b9a23fb46cbb0a90f5ecae6b7dcd5b1f13b9d4a5fe0de7cec85041
+# Generated : 2026-08-31
+#
+# sids use the local range 1000000-1999999. Renumber to fit your policy.
+#
+# THESE RULES HAVE NOT BEEN VALIDATED WITH `suricata -T -S`. Test before
+# deploying. Every rule carries a false-positive rating -- do not enable them
+# indiscriminately.
+# =====================================================================
+
+
+# ---------------------------------------------------------------------
+# [1] Hardcoded RFC 6455 example handshake key            FP risk: very low
+#
+# The WebSocket client is hand-written and sends the example key from the RFC
+# verbatim, unchanged on every connection. A conforming client must generate
+# 16 random bytes and base64 them per connection, so this is close to a unique
+# fingerprint. It survives recompilation, IP rotation and domain changes.
+#
+# Only plausible FP: someone running RFC sample code.
+# ---------------------------------------------------------------------
+alert tcp $HOME_NET any -> $EXTERNAL_NET any ( \
+    msg:"MALWARE RuntimeBroker loader - hardcoded RFC6455 example Sec-WebSocket-Key"; \
+    flow:established,to_server; \
+    content:"Sec-WebSocket-Key|3a 20|dGhlIHNhbXBsZSBub25jZQ==|0d 0a|"; \
+    classtype:trojan-activity; \
+    sid:1000001; rev:1;)
+
+
+# ---------------------------------------------------------------------
+# [2] Cleartext PE on the payload download channel        FP risk: medium
+#
+# The C2 control channel is a masked WebSocket, but payload delivery is a
+# separate, entirely unencrypted HTTP transfer. Evidence:
+#   - 0x140005FB0 validates MZ / PE\0\0 / IMAGE_FILE_DLL directly on the
+#     freshly received socket buffer
+#   - 0x140010FB0 (inside the recv loop) is a plain memcpy: zero real xor,
+#     zero bit-rotation instructions
+# An encryption layer on the wire would make those magic values impossible.
+#
+# Scoped to the C2 ports deliberately. Widening it to any port will match any
+# cleartext HTTP PE transfer -- baseline your environment first.
+# ---------------------------------------------------------------------
+alert tcp $EXTERNAL_NET [406,408] -> $HOME_NET any ( \
+    msg:"MALWARE RuntimeBroker loader - cleartext PE payload from C2 port"; \
+    flow:established,to_client; \
+    content:"MZ"; depth:2; \
+    content:"PE|00 00|"; distance:0; within:2048; \
+    classtype:trojan-activity; \
+    sid:1000002; rev:1;)
+
+
+# ---------------------------------------------------------------------
+# [3] Known C2 address                                    FP risk: none
+#
+# Hardcoded in the encrypted config (.data slot 0x1400310B8, UTF-16, decrypted
+# into a TLS slot at runtime). Ports 406 / 408.
+#
+# The C2 was already offline at time of publication -- this rule is mainly
+# useful for retrospective hunting over stored flow logs.
+# ---------------------------------------------------------------------
+alert ip $HOME_NET any -> 45.91.202.146 any ( \
+    msg:"MALWARE RuntimeBroker loader - known C2 IP 45.91.202.146"; \
+    classtype:trojan-activity; \
+    sid:1000003; rev:1;)
+
+
+# ---------------------------------------------------------------------
+# [4] Unmasked server-to-client command frames            FP risk: high
+#
+# RFC 6455 forbids masking on server frames, so C2 commands travel in the
+# clear. Confirmed server-issued verbs: getinfo / task / ping.
+# Frame header 0x82 = FIN + opcode 2 (binary).
+#
+# ("checkserver;" is sent BY the implant, not to it. Do not add it here.)
+#
+# "task" and "ping" are extremely common short strings. Use this for
+# confirmation on an already-suspicious session, not as an always-on rule.
+# ---------------------------------------------------------------------
+alert tcp $EXTERNAL_NET any -> $HOME_NET any ( \
+    msg:"MALWARE RuntimeBroker loader - unmasked C2 command frame (LOW CONFIDENCE)"; \
+    flow:established,to_client; \
+    content:"|82|"; depth:1; \
+    pcre:"/^\x82(\x07getinfo|\x04task|\x04ping)/"; \
+    classtype:trojan-activity; \
+    priority:3; \
+    sid:1000004; rev:1;)
+
+
+# ---------------------------------------------------------------------
+# [5] Fallback domain channel          FP risk: VERY HIGH -- disabled by default
+#
+# Fallback logic (analysis section 4.1): the primary path dials the hardcoded
+# IP; only on failure does it read a cached hostname from
+# HKCU\Software\Microsoft\EventSystem value "System" and append ".duckdns.org".
+# The subdomain prefix is not in the binary and could not be recovered, so no
+# precise rule is possible.
+#
+# duckdns.org is a legitimate free DDNS provider in wide use. Baseline your
+# environment, or convert this to log-only, before enabling.
+# ---------------------------------------------------------------------
+#alert dns $HOME_NET any -> any any ( \
+#    msg:"HUNTING duckdns.org lookup (RuntimeBroker fallback channel - HIGH FP)"; \
+#    dns.query; content:".duckdns.org"; endswith; nocase; \
+#    classtype:misc-activity; priority:3; \
+#    sid:1000005; rev:1;)
+
+
+# =====================================================================
+# Deployment guidance
+#
+#   always on          [1] [3]      very low FP
+#   on, port-scoped    [2]          already limited to 406/408
+#   hunting only       [4] [5]      [5] ships commented out
+#
+# Host-side indicators are stronger than any of these. Two registry values,
+# both under keys that legitimately exist on clean systems -- so test for the
+# VALUE, never the key:
+#
+#   HKCU\Software\WinRAR\Libs
+#       values named <task_id>_<module>_chunk_<n>
+#       (conclusive if WinRAR is not installed)
+#
+#   HKCU\Software\Microsoft\EventSystem
+#       value "System" containing a hostname
+#
+# Both present = confirmed infection.
+# =====================================================================

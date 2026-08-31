@@ -1,0 +1,9 @@
+# never commit samples or emulation output
+*.sample
+*.exe
+*.dll
+*.bin
+beacon_*.bin
+coverage.json
+__pycache__/
+*.pyc
