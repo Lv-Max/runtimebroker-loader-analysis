@@ -60,8 +60,9 @@ alert tcp $EXTERNAL_NET [406,408] -> $HOME_NET any ( \
 # Hardcoded in the encrypted config (.data slot 0x1400310B8, UTF-16, decrypted
 # into a TLS slot at runtime). Ports 406 / 408.
 #
-# The C2 was already offline at time of publication -- this rule is mainly
-# useful for retrospective hunting over stored flow logs.
+# Whether this C2 is still reachable was NOT tested at time of publication --
+# treat it as potentially live. Useful both for live detection and for
+# retrospective hunting over stored flow logs.
 # ---------------------------------------------------------------------
 alert ip $HOME_NET any -> 45.91.202.146 any ( \
     msg:"MALWARE RuntimeBroker loader - known C2 IP 45.91.202.146"; \

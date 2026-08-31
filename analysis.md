@@ -217,8 +217,8 @@ each capped at 5 attempts with `Sleep(30000)` between failures:
 3-second timeout.
 
 The `.duckdns.org` **subdomain prefix is not in the binary**. It is whatever
-hostname most recently probed successfully, cached in the registry. On a wiped
-host with a dead C2 it is unrecoverable — this is data loss, not an
+hostname most recently probed successfully, cached in the registry. The infected
+host was wiped, so that cached value is gone — this is data loss, not an
 analysis gap.
 
 A 62-character alphabet (`a-zA-Z0-9`) coexists with the domain suffix in the
@@ -434,9 +434,18 @@ the heuristic cannot establish function extents.
 
 **Not obtained:**
 
-- **The second-stage payload itself.** It requires a live C2. The C2 is down and
-  the infected host was wiped, taking the staged registry chunks with it.
-  Physically unavailable.
+- **The second-stage payload itself.** It is not in this file; the C2 delivers it
+  on demand in response to a `createtask` command. The infected host was wiped,
+  taking the staged registry chunks with it, and no public sandbox run appears to
+  have captured it either — across the 20 samples VirusTotal associates with this
+  C2, every dropped file is the loader's own self-copy.
+
+  **Whether the C2 is still reachable was not tested.** "Not obtained" here means
+  exactly that; it is not a claim that retrieval is impossible. Note also that
+  absence of network activity in public sandbox reports is *expected* regardless
+  of C2 state: the anti-analysis checks in §2 run long before the beacon in §3,
+  so a sample that detects the sandbox never reaches the network stage. Sandbox
+  telemetry therefore says nothing about whether the server is alive.
 - **The `.duckdns.org` subdomain prefix.** Mechanism understood (§4.1); the
   cached value is gone with the host.
 - **The unnamed 320 KB section.** VMProtect's own runtime. Analysing it studies
