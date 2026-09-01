@@ -21,7 +21,13 @@
 # 16 random bytes and base64 them per connection, so this is close to a unique
 # fingerprint. It survives recompilation, IP rotation and domain changes.
 #
-# Only plausible FP: someone running RFC sample code.
+# FP caveat -- do not read "very low" as "none". This exact base64 value
+# (decoding to "the sample nonce") is the RFC's own example and is widely reused
+# in security tooling and documentation: PayloadsAllTheThings' WebSocket section,
+# CSWSH test cases, and Node.js handshake examples all carry it verbatim. In an
+# environment where people run web security tests, this rule can fire on
+# legitimate traffic. It remains near-zero-FP on ordinary user networks, and rule
+# [7] plus a destination check disambiguates.
 # ---------------------------------------------------------------------
 alert tcp $HOME_NET any -> $EXTERNAL_NET any ( \
     msg:"MALWARE RuntimeBroker loader - hardcoded RFC6455 example Sec-WebSocket-Key"; \
