@@ -49,6 +49,47 @@ campaign shipping daily builds is not pointed at a dead server. Correspondingly,
 durable indicators are the two registry values below and the hardcoded RFC 6455
 handshake key, neither of which changes between builds.
 
+## The second stage
+
+Retrieved from the live C2 on 2026-08-31 by speaking the protocol with a
+purpose-built client — the sample itself was never run.
+
+```
+SHA-256   fd779b73082ed7c7d98d076f863562a6cb8d2297077a3e093305051be040bd29
+Size      1,452,032 bytes   PE32+ DLL x64
+Family    Redhive Stealer (its own branding)
+          CryptBot per Microsoft, TrendMicro, Antiy, alibabacloud
+Compiled  2026-08-21, one day before the loader
+```
+
+It brands itself in its own log template, including a `%worker%` affiliate
+identifier — this is malware-as-a-service, sold to resellers.
+
+**Not a first capture.** The same payload has been on VirusTotal since
+2026-08-23, uploaded as `Stealer_1.0.1_chunk_0_export.bin` — someone else had
+already exported it from the registry chunks.
+
+Three things about it are worth flagging beyond the usual credential theft:
+
+- **Chrome App-Bound Encryption is defeated**, via
+  `NCryptOpenKey("Google Chromekey1")` plus token impersonation. Chrome 127+
+  cookie protection does not stop it.
+- **Browser `Web Data` is copied wholesale**, which includes the
+  `local_stored_cvc` / `server_stored_cvc` tables. Stored card CVCs go with it.
+- **Wallet extensions are copied, not cracked** — there is no vault-decryption
+  code at all. Locking a wallet does not protect it: the encrypted vault sits on
+  disk regardless, and cracking happens offline, often with the password taken
+  from the same haul.
+
+It also targets **AI CLI credentials** — `~/.claude/auth.json`,
+`.codex/oauth_creds.json`, `.gemini/google_accounts.json`. Any host running
+those CLIs at infection time had those sessions taken.
+
+Conversely, it has **no send capability** and imports no HTTP or TLS library, so
+it cannot post messages itself. Scam messages sent from a victim's accounts come
+from the operator replaying stolen tokens server-side — which reinstalling the
+host does not remedy.
+
 ## Highest-value host indicators
 
 Two registry values. Both keys are legitimate paths that exist on clean systems,
@@ -71,7 +112,7 @@ Both present = confirmed infection.
 analysis.md               full technical write-up
 detection/
     runtimebroker.yar     3 YARA rules — tested, see below
-    suricata.rules        7 network rules, each with a false-positive rating
+    suricata.rules        8 network rules, each with a false-positive rating
     attack-mapping.md     MITRE ATT&CK mapping
 iocs/
     iocs.txt              plain text, one per line
@@ -93,11 +134,11 @@ samples/                  hashes only — no binaries in this repo
 Tested against 400 clean `C:\Windows\System32` binaries: **0 false positives.**
 The stage-1 dropper does not match (different family), as expected.
 
-**Suricata/Snort** — 7 rules, each annotated with a false-positive rating and a
-deployment recommendation. Four are safe to run always (the hardcoded RFC 6455
-handshake key, its strict 152-byte form, the C2 address, and the `GET /task/`
-payload request); one is scoped to the C2 ports; two are hunting-only and one of
-those ships commented out.
+**Suricata/Snort** — 8 rules, each annotated with a false-positive rating and a
+deployment recommendation. Five are safe to run always (the hardcoded RFC 6455
+handshake key, its strict 152-byte form, the C2 address, the `GET /task/`
+payload request, and the stealer's exfiltration greeting); one is scoped to the
+C2 ports; two are hunting-only and one of those ships commented out.
 
 > The network rules have **not** been validated with `suricata -T`. Test before
 > deploying.

@@ -9,10 +9,21 @@
 cf0d4b3837b9a23fb46cbb0a90f5ecae6b7dcd5b1f13b9d4a5fe0de7cec85041  RuntimeBroker.exe    stage 2 loader
 b971a5c1915861d611bf56d718f084406325890e5f47d9a1f64e982481e3b2b8  HowToFishTrainer.exe stage 1 dropper
 
+## hashes -- second stage
+fd779b73082ed7c7d98d076f863562a6cb8d2297077a3e093305051be040bd29  Redhive Stealer / CryptBot
+                                                                  1,452,032 bytes, PE32+ DLL
+                                                                  retrieved live 2026-08-31;
+                                                                  public on VT since 2026-08-23
+
 ## network
 45.91.202.146          C2
 45.91.202.146:406      C2 primary port
-45.91.202.146:408      C2 secondary port
+45.91.202.146:408      payload download (HTTP)
+45.91.202.146:1488     stealer exfiltration -- line protocol, NO TLS, NO compression
+                       "stealer;<8-hex volume serial>
+" -> "auth_ok
+" -> 8-byte BE
+                       length -> stored ZIP. Data crosses the wire in the clear.
 *.duckdns.org          fallback channel suffix (subdomain generated at runtime, not in binary -- HIGH FP, hunting only)
 
 ## network -- protocol fingerprints
@@ -31,8 +42,8 @@ C:\ProgramData\Windows\                              install directory (NOT a st
 
 ## registry -- staged payload  (conclusive when WinRAR is not installed)
 HKCU\Software\WinRAR\Libs
-  value:  <task_id>_<module>_chunk_<n>
-  value:  <task_id>_<module>_tempchunk_<n>
+  value:  <type>_<version>_chunk_<n>          e.g. Stealer_1.0.1_chunk_0
+  value:  <type>_<version>_tempchunk_<n>
 
 ## registry -- cached C2 hostname
 HKCU\Software\Microsoft\EventSystem

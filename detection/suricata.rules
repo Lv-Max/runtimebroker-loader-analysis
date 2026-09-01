@@ -60,9 +60,10 @@ alert tcp $EXTERNAL_NET [406,408] -> $HOME_NET any ( \
 # Hardcoded in the encrypted config (.data slot 0x1400310B8, UTF-16, decrypted
 # into a TLS slot at runtime). Ports 406 / 408.
 #
-# Whether this C2 is still reachable was NOT tested at time of publication --
-# treat it as potentially live. Useful both for live detection and for
-# retrospective hunting over stored flow logs.
+# CONFIRMED LIVE on 2026-08-31 / 2026-09-01: the server completed a WebSocket
+# handshake, issued commands, and served the second-stage payload. Ports 406
+# (control), 408 (download) and 1488 (exfiltration) are all on this one
+# address, so blocking it covers the entire chain.
 # ---------------------------------------------------------------------
 alert ip $HOME_NET any -> 45.91.202.146 any ( \
     msg:"MALWARE RuntimeBroker loader - known C2 IP 45.91.202.146"; \
@@ -118,10 +119,15 @@ alert tcp $EXTERNAL_NET any -> $HOME_NET any ( \
 #
 #   GET /task/%s HTTP/1.1\r\nHost: %s\r\nUser-Agent: %s\r\nConnection: close\r\n\r\n
 #
-# The %s in the path is the task identifier. Pairing "GET /task/" with
-# "Connection: close" in the same request is specific enough on its own; the
-# response to it is an unencrypted PE, which rule [2] catches from the other
-# direction. Together they bracket the whole payload transfer.
+# The %s in the path is the MODULE TYPE, not the task id -- confirmed against
+# the live server: /task/<task_id> returns 404, /task/<type> returns the
+# payload. The User-Agent is not a browser string either: it carries the bot
+# id and acts as the authorisation token (absent or malformed -> 403,
+# well-formed but wrong identity -> 404).
+#
+# Pairing "GET /task/" with "Connection: close" in one request is specific
+# enough on its own. The response is an unencrypted PE, which rule [2] catches
+# from the other direction -- together they bracket the whole transfer.
 #
 # Not port-locked deliberately -- the download channel is separate from the
 # WebSocket control channel and its port is supplied at runtime, so it will not
@@ -177,12 +183,34 @@ alert tcp $HOME_NET any -> $EXTERNAL_NET any ( \
     sid:1000007; rev:1;)
 
 
+# ---------------------------------------------------------------------
+# [8] Stealer exfiltration channel                        FP risk: very low
+#
+# Belongs to the second-stage payload, not the loader, but runs on the same
+# host. Line-oriented, no TLS, no compression -- the archive crosses the wire
+# in the clear, so a sensor that sees this also sees the stolen data.
+#
+#   -->  "stealer;<8 lowercase hex volume serial>
+"
+#   <--  "auth_ok
+"
+#   -->  8-byte big-endian length, then a stored (uncompressed) ZIP
+#
+# The volume serial doubles as the bot id used in the WebSocket "ready;"
+# message, which ties an archive to a specific host.
+#
+# The greeting is anchored at offset 0 of the stream and the identity is fixed
+# width, so this is cheap and precise. Verified live 2026-09-01 00:26 UTC.
+# ---------------------------------------------------------------------
+alert tcp $HOME_NET any -> $EXTERNAL_NET any (     msg:"MALWARE Redhive Stealer - exfiltration channel greeting";     flow:established,to_server;     content:"stealer|3b|"; depth:8;     pcre:"/^stealer;[0-9a-f]{8}\n/";     classtype:trojan-activity;     sid:1000008; rev:1;)
+
+
 # =====================================================================
 # Deployment guidance
 #
-#   always on          [1] [3] [6] [7]   very low FP
-#   on, port-scoped    [2]               already limited to 406/408
-#   hunting only       [4] [5]           [5] ships commented out
+#   always on          [1] [3] [6] [7] [8]   very low FP
+#   on, port-scoped    [2]                   already limited to 406/408
+#   hunting only       [4] [5]               [5] ships commented out
 #
 #   [6] + [2] bracket the payload transfer: the request going out, the
 #   unencrypted PE coming back. [7] is the strict form of [1] -- run [1]

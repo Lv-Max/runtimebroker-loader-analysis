@@ -6,31 +6,92 @@
   "malware_type": "loader",
   "note": "Both registry keys listed are legitimate paths present on clean systems. Detect on the value name, never on the key.",
   "hashes": [
-    { "sha256": "cf0d4b3837b9a23fb46cbb0a90f5ecae6b7dcd5b1f13b9d4a5fe0de7cec85041", "filename": "RuntimeBroker.exe", "role": "stage2-loader" },
-    { "sha256": "b971a5c1915861d611bf56d718f084406325890e5f47d9a1f64e982481e3b2b8", "filename": "HowToFishTrainer.exe", "role": "stage1-dropper" }
+    {
+      "sha256": "cf0d4b3837b9a23fb46cbb0a90f5ecae6b7dcd5b1f13b9d4a5fe0de7cec85041",
+      "filename": "RuntimeBroker.exe",
+      "role": "stage2-loader"
+    },
+    {
+      "sha256": "b971a5c1915861d611bf56d718f084406325890e5f47d9a1f64e982481e3b2b8",
+      "filename": "HowToFishTrainer.exe",
+      "role": "stage1-dropper"
+    },
+    {
+      "sha256": "fd779b73082ed7c7d98d076f863562a6cb8d2297077a3e093305051be040bd29",
+      "filename": "Stealer.dll",
+      "role": "stage3-payload",
+      "family": "Redhive Stealer (self-branded); CryptBot per Microsoft/TrendMicro/Antiy/alibabacloud",
+      "note": "1,452,032 bytes, PE32+ DLL. Retrieved live from the C2 2026-08-31; public on VirusTotal since 2026-08-23 as Stealer_1.0.1_chunk_0_export.bin"
+    }
   ],
   "network": {
-    "ipv4": [ "45.91.202.146" ],
-    "ports": [ 406, 408 ],
-    "domains": [ { "value": "*.duckdns.org", "confidence": "low", "note": "fallback suffix; subdomain resolved at runtime and cached in the registry, not present in the binary. High false-positive rate -- hunting only." } ],
+    "ipv4": [
+      "45.91.202.146"
+    ],
+    "ports": [
+      406,
+      408,
+      1488
+    ],
+    "domains": [
+      {
+        "value": "*.duckdns.org",
+        "confidence": "low",
+        "note": "fallback suffix; subdomain resolved at runtime and cached in the registry, not present in the binary. High false-positive rate -- hunting only."
+      }
+    ],
     "protocol_strings": [
       "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
       "ready;<volume-serial-as-8-lowercase-hex>;version;1.0.0",
       "checkserver;",
-      "task_done;"
+      "task_done;",
+      "GET /task/<type>  with User-Agent: <bot_id>  (UA is the auth token)",
+      "stealer;<8-lowercase-hex-volume-serial>\n  ->  auth_ok\n"
     ],
-    "campaign_id": "63203572"
+    "campaign_id": "63203572",
+    "port_roles": {
+      "406": "WebSocket control channel",
+      "408": "HTTP payload download",
+      "1488": "stealer exfiltration - no TLS, no compression"
+    }
   },
   "filesystem": [
-    { "path": "C:\\ProgramData\\Windows\\Microsoft\\RuntimeBroker.exe", "type": "install-path" },
-    { "path": "C:\\ProgramData\\Windows\\", "type": "install-directory", "note": "not a standard Windows directory" }
+    {
+      "path": "C:\\ProgramData\\Windows\\Microsoft\\RuntimeBroker.exe",
+      "type": "install-path"
+    },
+    {
+      "path": "C:\\ProgramData\\Windows\\",
+      "type": "install-directory",
+      "note": "not a standard Windows directory"
+    }
   ],
   "registry": [
-    { "key": "HKCU\\Software\\WinRAR\\Libs", "value_pattern": "<task_id>_<module>_chunk_<n>", "purpose": "staged payload chunks", "confidence": "high", "note": "conclusive when WinRAR is not installed" },
-    { "key": "HKCU\\Software\\WinRAR\\Libs", "value_pattern": "<task_id>_<module>_tempchunk_<n>", "purpose": "in-flight payload chunks", "confidence": "high" },
-    { "key": "HKCU\\Software\\Microsoft\\EventSystem", "value_name": "System", "purpose": "cached C2 hostname for the fallback channel", "confidence": "high" }
+    {
+      "key": "HKCU\\Software\\WinRAR\\Libs",
+      "value_pattern": "<type>_<version>_chunk_<n>",
+      "purpose": "staged payload chunks",
+      "confidence": "high",
+      "note": "conclusive when WinRAR is not installed",
+      "example": "Stealer_1.0.1_chunk_0"
+    },
+    {
+      "key": "HKCU\\Software\\WinRAR\\Libs",
+      "value_pattern": "<type>_<version>_tempchunk_<n>",
+      "purpose": "in-flight payload chunks",
+      "confidence": "high",
+      "example": "Stealer_1.0.1_chunk_0"
+    },
+    {
+      "key": "HKCU\\Software\\Microsoft\\EventSystem",
+      "value_name": "System",
+      "purpose": "cached C2 hostname for the fallback channel",
+      "confidence": "high"
+    }
   ],
-  "mutex": [ "Global\\RuntimeBrokerAds" ],
+  "mutex": [
+    "Global\\RuntimeBrokerAds"
+  ],
   "scheduled_tasks": [
     "Updates compatibility database",
     "Handles restoring settings from the cloud",
@@ -48,5 +109,6 @@
     "process injection via NtAllocateVirtualMemory / NtWriteVirtualMemory / NtCreateThreadEx",
     "amsi.dll!AmsiOpenSession patched in memory",
     "RtlSetProcessIsCritical set on self"
-  ]
+  ],
+  "c2_status": "confirmed live 2026-08-31 / 2026-09-01; campaign shipping fresh builds daily"
 }

